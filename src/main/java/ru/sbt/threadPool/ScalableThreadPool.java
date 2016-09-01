@@ -29,8 +29,10 @@ public class ScalableThreadPool implements ThreadPool {
             Thread thread = new Thread(() -> {
                 try {
                     currentWorkedThread++;
-                    Runnable poll = tasks.poll();
-                    poll.run();
+                    while (!tasks.isEmpty()) {
+                        Runnable poll = tasks.poll();
+                        poll.run();
+                    }
                 } finally {
                     currentWorkedThread--;
                 }
