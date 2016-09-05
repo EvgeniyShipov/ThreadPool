@@ -7,9 +7,10 @@ import java.util.Queue;
 public class ScalableThreadPool implements ThreadPool {
 
     private volatile Queue<Runnable> tasks = new ArrayDeque<>();
+    private volatile int currentWorkedThread;
+    private final Object lock = new Object();
     private final int minThread;
     private final int maxThread;
-    private volatile int currentWorkedThread;
 
     public ScalableThreadPool(int minThread, int maxThread) {
         this.minThread = minThread;
@@ -23,38 +24,42 @@ public class ScalableThreadPool implements ThreadPool {
         }
     }
 
-    public synchronized void execute(Runnable runnable) {
-        tasks.add(runnable);
-        if (currentWorkedThread >= minThread && currentWorkedThread < maxThread) {
-            Thread thread = new Thread(() -> {
-                try {
-                    currentWorkedThread++;
-                    while (!tasks.isEmpty()) {
-                        Runnable poll = tasks.poll();
-                        poll.run();
+    public void execute(Runnable runnable) {
+        synchronized (lock) {
+            tasks.add(runnable);
+            if (currentWorkedThread >= minThread && currentWorkedThread < maxThread) {
+                Thread thread = new Thread(() -> {
+                    try {
+                        currentWorkedThread++;
+                        while (!tasks.isEmpty()) {
+                            Runnable poll = tasks.poll();
+                            poll.run();
+                        }
+                    } finally {
+                        currentWorkedThread--;
                     }
-                } finally {
-                    currentWorkedThread--;
-                }
-            });
-            thread.start();
-        } else notify();
+                });
+                thread.start();
+            } else lock.notify();
+        }
     }
 
     public class Worker extends Thread {
         @Override
         public void run() {
             while (true) {
-                if (!tasks.isEmpty()) {
-                    currentWorkedThread++;
-                    Runnable poll = tasks.poll();
-                    poll.run();
-                } else try {
-                    wait();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    currentWorkedThread--;
+                synchronized (lock) {
+                    if (!tasks.isEmpty()) {
+                        currentWorkedThread++;
+                        Runnable poll = tasks.poll();
+                        poll.run();
+                    } else try {
+                        lock.wait();
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    } finally {
+                        currentWorkedThread--;
+                    }
                 }
             }
         }
